@@ -1,0 +1,27 @@
+{
+  "name": "tickent-booking-service",
+  "version": "1.0.0",
+  "description": "TickEnt Booking Service – xử lý đặt vé bất đồng bộ qua RabbitMQ",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "consumer": "node src/consumer/bookingConsumer.js",
+    "consumer:timeout": "node src/consumer/bookingTimeoutConsumer.js",
+    "consumer:notification": "node src/consumer/bookingNotificationConsumer.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-validator": "^7.2.0",
+    "pg": "^8.12.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

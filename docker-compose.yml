@@ -1,0 +1,253 @@
+# ============================================================
+# docker-compose.yml – TickEnt Hệ thống phân tán
+# ============================================================
+#
+# Danh sách containers:
+#  Infrastructure:
+#    postgres            – PostgreSQL 16 (Shared Database)
+#    rabbitmq            – RabbitMQ 3 + Management UI
+#
+#  Application Services:
+#    api-gateway         – PORT 8080  → Entry point duy nhất
+#    event-catalog-api   – PORT 3002  → Event Catalog Service
+#    user-payment-api    – PORT 3003  → User & Payment Service (Auth + Webhook)
+#    booking-api         – PORT 3001  → Booking Service (API nhận đơn)
+#
+#  Background Workers (không expose port):
+#    booking-worker      – consume booking_requests_queue
+#    timeout-worker      – consume booking_timeout_queue (DLX 10 phút)
+#    notification-worker – consume booking_notification_queue (gửi email + QR)
+#
+# ============================================================
+
+version: "3.9"
+
+# ── Mạng nội bộ ──────────────────────────────────────────────
+networks:
+  tickent-net:
+    driver: bridge
+
+# ── Volumes bền vững ─────────────────────────────────────────
+volumes:
+  postgres-data:
+  rabbitmq-data:
+
+# ── Services ─────────────────────────────────────────────────
+services:
+
+  # ── 1. PostgreSQL ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: tickent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-tickent}
+      POSTGRES_USER:     ${POSTGRES_USER:-tickent_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tickent_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Tự động chạy schema khi khởi tạo lần đầu
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - tickent-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tickent_user} -d ${POSTGRES_DB:-tickent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 2. RabbitMQ ───────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: tickent-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - tickent-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── 3. Event Catalog Service ──────────────────────────────
+  event-catalog-api:
+    build:
+      context: ./services/event-catalog-service
+      dockerfile: Dockerfile
+    container_name: tickent-event-catalog
+    restart: unless-stopped
+    # CMD mặc định trong Dockerfile: npm start
+    environment:
+      PORT:         3002
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      JWT_SECRET:   ${JWT_SECRET:-change_me_in_production}
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 4. User Payment Service (API: Auth + Webhook) ────────
+  user-payment-api:
+    build:
+      context: ./services/user-payment-service
+      dockerfile: Dockerfile
+    container_name: tickent-user-payment
+    restart: unless-stopped
+    # CMD mặc định: npm start → node src/server.js
+    environment:
+      PORT:             3003
+      NODE_ENV:         production
+      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      RABBITMQ_URL:     amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      JWT_SECRET:       ${JWT_SECRET:-change_me_in_production}
+      BCRYPT_SALT_ROUNDS: 12
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@tickent.io}
+      QR_BASE_URL:      ${QR_BASE_URL:-https://qr.tickent.io/verify}
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 5. Notification Worker ────────────────────────────────
+  # Gửi email xác nhận + cấp QR code sau khi payment SUCCESS.
+  # Dùng cùng image với user-payment-api, override CMD.
+  notification-worker:
+    build:
+      context: ./services/user-payment-service
+      dockerfile: Dockerfile
+    container_name: tickent-notification-worker
+    restart: unless-stopped
+    # Override CMD → chạy consumer:notification thay vì start
+    command: ["npm", "run", "consumer:notification"]
+    environment:
+      NODE_ENV:         production
+      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      RABBITMQ_URL:     amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@tickent.io}
+      QR_BASE_URL:      ${QR_BASE_URL:-https://qr.tickent.io/verify}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 6. Booking Service (API nhận đơn) ────────────────────
+  booking-api:
+    build:
+      context: ./services/booking-service
+      dockerfile: Dockerfile
+    container_name: tickent-booking-api
+    restart: unless-stopped
+    # CMD mặc định: npm start → node src/server.js
+    environment:
+      PORT:         3001
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-10}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 7. Booking Worker ─────────────────────────────────────
+  # Consume booking_requests_queue: tạo booking PENDING trong DB.
+  # Cùng image với booking-api, override CMD.
+  booking-worker:
+    build:
+      context: ./services/booking-service
+      dockerfile: Dockerfile
+    container_name: tickent-booking-worker
+    restart: unless-stopped
+    # Override CMD → npm run consumer → node src/consumer/bookingConsumer.js
+    command: ["npm", "run", "consumer"]
+    environment:
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 8. Timeout Worker ─────────────────────────────────────
+  # Consume booking_timeout_queue (DLX): hủy PENDING sau 10 phút.
+  # Cùng image với booking-api, override CMD.
+  timeout-worker:
+    build:
+      context: ./services/booking-service
+      dockerfile: Dockerfile
+    container_name: tickent-timeout-worker
+    restart: unless-stopped
+    # Override CMD → npm run consumer:timeout → node src/consumer/bookingTimeoutConsumer.js
+    command: ["npm", "run", "consumer:timeout"]
+    environment:
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - tickent-net
+
+  # ── 9. API Gateway ────────────────────────────────────────
+  # Entry point duy nhất cho mọi Client (React/Flutter).
+  # Phụ thuộc vào tất cả API services phía sau.
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: tickent-api-gateway
+    restart: unless-stopped
+    environment:
+      PORT:                    8080
+      NODE_ENV:                production
+      # Trỏ tới service name trong docker network (thay vì localhost)
+      EVENT_CATALOG_SERVICE_URL: http://event-catalog-api:3002
+      USER_PAYMENT_SERVICE_URL:  http://user-payment-api:3003
+      BOOKING_SERVICE_URL:       http://booking-api:3001
+      RATE_LIMIT_WINDOW_MS:      ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX_REQUESTS:   ${RATE_LIMIT_MAX_REQUESTS:-100}
+    ports:
+      - "8080:8080"   # Cổng duy nhất mở ra bên ngoài
+    depends_on:
+      - event-catalog-api
+      - user-payment-api
+      - booking-api
+    networks:
+      - tickent-net

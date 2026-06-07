@@ -1,0 +1,35 @@
+# ============================================================
+# .gitignore – TickEnt Project
+# ============================================================
+
+# --- Biến môi trường (KHÔNG bao giờ commit) ---
+.env
+.env.local
+.env.production
+.env.*.local
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Build output ---
+dist/
+build/
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

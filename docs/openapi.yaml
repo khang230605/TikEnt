@@ -1,0 +1,779 @@
+openapi: "3.1.0"
+
+# ============================================================
+#  TickEnt – OpenAPI Specification
+#  Version : 1.0.0
+#  Covers  :
+#    1. GET  /events/{eventId}          – Event Details & Ticket Tiers
+#    2. POST /bookings                  – Create Booking (async, → RabbitMQ)
+#    3. POST /webhooks/payment/callback – Payment Webhook (provider callback)
+# ============================================================
+
+info:
+  title: TickEnt API
+  version: "1.0.0"
+  description: |
+    **TickEnt** – Hệ thống đặt vé sự kiện trực tuyến theo kiến trúc SOA.
+
+    ### Luồng đặt vé tổng quát
+    ```
+    Client ──POST /bookings──► Booking Service ──publish──► RabbitMQ
+                                                                │
+                                              Payment Service ◄─┘ (consume)
+                                                    │
+                               Payment Provider ◄───┘ (charge)
+                                    │
+                  POST /webhooks/payment/callback ──► Booking Service
+                                    │
+                              tickets issued + inventory updated (Optimistic Lock)
+    ```
+
+    ### Optimistic Locking
+    Cột `inventory.version` được tăng mỗi lần cập nhật tồn kho.
+    Nếu `version` không khớp → `409 Conflict` → client retry.
+  contact:
+    name: TickEnt Team
+    email: dev@tickent.io
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://api.tickent.io/v1
+    description: Production
+
+# ============================================================
+# Tags
+# ============================================================
+tags:
+  - name: Events
+    description: Tra cứu thông tin sự kiện và hạng vé
+  - name: Bookings
+    description: Luồng đặt vé bất đồng bộ qua RabbitMQ
+  - name: Webhooks
+    description: Callback từ cổng thanh toán bên thứ ba
+
+# ============================================================
+# Paths
+# ============================================================
+paths:
+
+  # ----------------------------------------------------------
+  # 1. GET /events/{eventId}
+  #    Luồng ĐỌC – trả về chi tiết sự kiện + tất cả hạng vé
+  #    kèm tồn kho (available_qty) để client hiển thị.
+  # ----------------------------------------------------------
+  /events/{eventId}:
+    get:
+      operationId: getEventDetails
+      summary: Lấy chi tiết sự kiện và danh sách hạng vé
+      description: |
+        Trả về thông tin đầy đủ của sự kiện bao gồm:
+        - Metadata sự kiện (tên, địa điểm, thời gian, trạng thái)
+        - Danh sách tất cả **ticket_tiers** đang mở bán
+        - Số vé còn lại (`available_qty`) tính từ bảng `inventory`
+
+        Chỉ sự kiện có `status = PUBLISHED` mới được trả về với người dùng thông thường.
+      tags: [Events]
+      security:
+        - BearerAuth: []
+        - {}           # endpoint công khai, auth optional
+      parameters:
+        - $ref: "#/components/parameters/PathEventId"
+      responses:
+        "200":
+          description: Thành công – trả về chi tiết sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetailResponse"
+              example:
+                data:
+                  id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  organizer_id: "11111111-1111-1111-1111-111111111111"
+                  title: "TickEnt Music Festival 2024"
+                  description: "Đêm nhạc hội tụ hàng trăm nghệ sĩ hàng đầu Việt Nam."
+                  category: "Music"
+                  venue_name: "Sân vận động Mỹ Đình"
+                  venue_address: "Đường Lê Đức Thọ, Nam Từ Liêm, Hà Nội"
+                  city: "Hà Nội"
+                  country: "VN"
+                  start_time: "2024-12-31T18:00:00+07:00"
+                  end_time: "2025-01-01T02:00:00+07:00"
+                  banner_url: "https://cdn.tickent.io/banners/festival-2024.jpg"
+                  status: "PUBLISHED"
+                  ticket_tiers:
+                    - id: "aaaa0001-0000-0000-0000-000000000001"
+                      name: "VIP"
+                      description: "Khu vực khán đài VIP, tặng kèm backstage pass"
+                      price: 2500000.00
+                      currency: "VND"
+                      max_per_order: 4
+                      sale_start: "2024-11-01T00:00:00+07:00"
+                      sale_end: "2024-12-30T23:59:59+07:00"
+                      available_qty: 150
+                    - id: "aaaa0002-0000-0000-0000-000000000002"
+                      name: "Standard"
+                      description: "Khu vực khán đài thường"
+                      price: 800000.00
+                      currency: "VND"
+                      max_per_order: 10
+                      sale_start: "2024-11-01T00:00:00+07:00"
+                      sale_end: "2024-12-30T23:59:59+07:00"
+                      available_qty: 3200
+                  created_at: "2024-10-01T09:00:00+07:00"
+                  updated_at: "2024-11-15T14:30:00+07:00"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ----------------------------------------------------------
+  # 2. POST /bookings
+  #    Luồng GHI bất đồng bộ – nhận request, validate cơ bản,
+  #    publish message vào RabbitMQ, trả về 202 Accepted ngay.
+  #    Booking Service sẽ xử lý thực sự sau khi consume.
+  # ----------------------------------------------------------
+  /bookings:
+    post:
+      operationId: createBooking
+      summary: Tạo yêu cầu đặt vé (bất đồng bộ)
+      description: |
+        Tiếp nhận yêu cầu đặt vé từ client và **publish một message** vào hàng đợi
+        RabbitMQ exchange `booking.exchange` với routing key `booking.created`.
+
+        ### Xử lý bất đồng bộ
+        | Bước | Nơi thực hiện | Ghi chú |
+        |------|--------------|---------|
+        | 1    | Booking Service (API) | Validate request, sinh `booking_code`, publish message |
+        | 2    | Booking Service (Consumer) | Consume message, kiểm tra tồn kho (Optimistic Lock) |
+        | 3    | Payment Service | Khởi tạo giao dịch với payment provider |
+        | 4    | Booking Service (Webhook) | Nhận callback, phát hành vé |
+
+        ### Response ngay lập tức
+        API trả về **`202 Accepted`** kèm `booking_code` để client polling trạng thái
+        hoặc lắng nghe qua WebSocket/SSE.
+
+        ### Optimistic Locking
+        Nếu tồn kho bị race condition → consumer retry tối đa 3 lần → nếu vẫn thất bại
+        → booking chuyển sang `FAILED` và client được thông báo qua notification service.
+      tags: [Bookings]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+            example:
+              user_id: "11111111-1111-1111-1111-111111111111"
+              event_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+              ticket_tier_id: "aaaa0001-0000-0000-0000-000000000001"
+              quantity: 2
+              attendees:
+                - name: "Nguyễn Văn A"
+                  email: "nguyenvana@email.com"
+                - name: "Trần Thị B"
+                  email: "tranthib@email.com"
+              payment_method: "VNPAY"
+      responses:
+        "202":
+          description: |
+            **Đang xử lý** – Yêu cầu đặt vé đã được tiếp nhận và đưa vào hàng đợi.
+            Sử dụng `booking_code` để kiểm tra trạng thái.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateBookingResponse"
+              example:
+                message: "Đang xử lý"
+                data:
+                  booking_code: "TICK-20241201-A3F9"
+                  status: "PENDING"
+                  expires_at: "2025-06-06T21:43:00+07:00"
+                  estimated_processing_seconds: 5
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: |
+            **Conflict** – Không đủ vé (race condition hoặc hết hàng).
+            Client có thể thử lại với số lượng nhỏ hơn.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "INVENTORY_CONFLICT"
+                  message: "Số lượng vé không đủ, vui lòng thử lại."
+                  details:
+                    available_qty: 1
+                    requested_qty: 2
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ----------------------------------------------------------
+  # 3. POST /webhooks/payment/callback
+  #    Callback từ Payment Provider (VNPay, Momo, Stripe…).
+  #    Booking Service verify chữ ký, cập nhật trạng thái booking,
+  #    phát hành ticket và cập nhật inventory (sold_qty).
+  # ----------------------------------------------------------
+  /webhooks/payment/callback:
+    post:
+      operationId: paymentWebhookCallback
+      summary: Nhận callback thanh toán từ payment provider
+      description: |
+        Endpoint nhận **webhook/IPN** từ cổng thanh toán sau khi giao dịch hoàn tất.
+
+        ### Bảo mật
+        - Provider ký payload bằng HMAC-SHA256 (key riêng từng provider).
+        - Booking Service **phải verify** chữ ký trước khi xử lý.
+        - Header `X-Webhook-Signature` chứa chữ ký để verify.
+        - IP whitelist theo từng provider (VNPay, Momo, Stripe…).
+
+        ### Xử lý thành công (`payment_status = SUCCESS`)
+        1. Cập nhật `bookings.status` → `CONFIRMED`
+        2. Tạo bản ghi trong `booking_domain.tickets` (1 bản ghi / 1 vé)
+        3. Cập nhật `inventory`: `sold_qty += quantity`, `reserved_qty -= quantity` (Optimistic Lock)
+        4. Gửi email/notification xác nhận cho user
+
+        ### Xử lý thất bại (`payment_status = FAILED | CANCELLED`)
+        1. Cập nhật `bookings.status` → `CANCELLED`
+        2. Hoàn trả `inventory.reserved_qty -= quantity` (Optimistic Lock)
+
+        ### Idempotency
+        Webhook có thể được gửi nhiều lần → Service phải xử lý idempotent
+        dựa trên `transaction_id`.
+      tags: [Webhooks]
+      security:
+        - WebhookSignature: []
+      parameters:
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          description: HMAC-SHA256 chữ ký của payload, dùng để verify tính toàn vẹn
+          schema:
+            type: string
+            example: "sha256=abc123def456..."
+        - name: X-Provider
+          in: header
+          required: true
+          description: Tên payment provider gửi webhook
+          schema:
+            type: string
+            enum: [VNPAY, MOMO, STRIPE, ZALOPAY]
+            example: "VNPAY"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentWebhookRequest"
+            examples:
+              success:
+                summary: Thanh toán thành công
+                value:
+                  transaction_id: "TXN-VNPAY-20241201-XYZ789"
+                  booking_code: "TICK-20241201-A3F9"
+                  payment_status: "SUCCESS"
+                  amount: 5000000.00
+                  currency: "VND"
+                  payment_method: "VNPAY"
+                  paid_at: "2024-12-01T21:35:12+07:00"
+                  provider_metadata:
+                    vnp_TransactionNo: "14325678"
+                    vnp_BankCode: "VCB"
+                    vnp_CardType: "ATM"
+              failed:
+                summary: Thanh toán thất bại
+                value:
+                  transaction_id: "TXN-VNPAY-20241201-FAIL001"
+                  booking_code: "TICK-20241201-B8K2"
+                  payment_status: "FAILED"
+                  amount: 2500000.00
+                  currency: "VND"
+                  payment_method: "VNPAY"
+                  paid_at: null
+                  failure_reason: "Insufficient funds"
+                  provider_metadata:
+                    vnp_ResponseCode: "51"
+      responses:
+        "200":
+          description: |
+            **Đã xác nhận** – Webhook đã được nhận và xử lý thành công.
+            Provider yêu cầu response `200` để không retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookAckResponse"
+              example:
+                acknowledged: true
+                booking_code: "TICK-20241201-A3F9"
+                booking_status: "CONFIRMED"
+                processed_at: "2024-12-01T21:35:15+07:00"
+        "400":
+          description: Payload không hợp lệ hoặc chữ ký sai
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "INVALID_SIGNATURE"
+                  message: "Chữ ký webhook không hợp lệ."
+        "404":
+          description: Không tìm thấy booking tương ứng với booking_code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Webhook đã được xử lý trước đó (idempotency)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookAckResponse"
+              example:
+                acknowledged: true
+                booking_code: "TICK-20241201-A3F9"
+                booking_status: "CONFIRMED"
+                processed_at: "2024-12-01T21:35:15+07:00"
+                note: "Already processed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+# ============================================================
+# Components
+# ============================================================
+components:
+
+  # ----------------------------------------------------------
+  # Security Schemes
+  # ----------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Access Token từ Auth Service (user_domain)
+    WebhookSignature:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: HMAC-SHA256 signature do payment provider cung cấp
+
+  # ----------------------------------------------------------
+  # Reusable Parameters
+  # ----------------------------------------------------------
+  parameters:
+    PathEventId:
+      name: eventId
+      in: path
+      required: true
+      description: UUID của sự kiện (event_domain.events.id)
+      schema:
+        type: string
+        format: uuid
+        example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+  # ----------------------------------------------------------
+  # Schemas
+  # ----------------------------------------------------------
+  schemas:
+
+    # ── event_domain ──────────────────────────────────────
+    TicketTierSummary:
+      type: object
+      description: Hạng vé kèm thông tin tồn kho (view model)
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ticket_tiers.id
+        name:
+          type: string
+          example: "VIP"
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+          format: double
+          example: 2500000.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: "VND"
+        max_per_order:
+          type: integer
+          minimum: 1
+          example: 4
+        sale_start:
+          type: string
+          format: date-time
+          nullable: true
+        sale_end:
+          type: string
+          format: date-time
+          nullable: true
+        available_qty:
+          type: integer
+          minimum: 0
+          description: |
+            Số vé còn lại = `total_qty - reserved_qty - sold_qty`
+            (tính từ event_domain.inventory)
+          example: 150
+      required:
+        - id
+        - name
+        - price
+        - currency
+        - max_per_order
+        - available_qty
+
+    EventDetailResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: events.id
+            organizer_id:
+              type: string
+              format: uuid
+              description: Logical FK → user_domain.users.id
+            title:
+              type: string
+              example: "TickEnt Music Festival 2024"
+            description:
+              type: string
+              nullable: true
+            category:
+              type: string
+              nullable: true
+              example: "Music"
+            venue_name:
+              type: string
+              nullable: true
+            venue_address:
+              type: string
+              nullable: true
+            city:
+              type: string
+              nullable: true
+            country:
+              type: string
+              example: "VN"
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+            banner_url:
+              type: string
+              format: uri
+              nullable: true
+            status:
+              type: string
+              enum: [DRAFT, PUBLISHED, CANCELLED, COMPLETED]
+            ticket_tiers:
+              type: array
+              items:
+                $ref: "#/components/schemas/TicketTierSummary"
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+          required:
+            - id
+            - organizer_id
+            - title
+            - start_time
+            - end_time
+            - status
+            - ticket_tiers
+      required:
+        - data
+
+    # ── booking_domain – Create Booking ───────────────────
+    AttendeeInfo:
+      type: object
+      description: Thông tin người tham dự (1 vé = 1 attendee)
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: "Nguyễn Văn A"
+        email:
+          type: string
+          format: email
+          example: "nguyenvana@email.com"
+      required:
+        - name
+        - email
+
+    CreateBookingRequest:
+      type: object
+      description: Request body để tạo đơn đặt vé
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: |
+            ID người đặt vé (booking_domain.bookings.user_id).
+            Phải khớp với JWT subject để tránh đặt vé thay người khác.
+        event_id:
+          type: string
+          format: uuid
+          description: Logical FK → event_domain.events.id
+        ticket_tier_id:
+          type: string
+          format: uuid
+          description: Logical FK → event_domain.ticket_tiers.id
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Số lượng vé muốn đặt (≤ ticket_tiers.max_per_order)
+          example: 2
+        attendees:
+          type: array
+          description: |
+            Thông tin từng người tham dự, số phần tử phải bằng `quantity`.
+            Có thể để trống – hệ thống sẽ dùng thông tin user mặc định.
+          items:
+            $ref: "#/components/schemas/AttendeeInfo"
+          minItems: 0
+        payment_method:
+          type: string
+          enum: [VNPAY, MOMO, STRIPE, ZALOPAY, BANK_TRANSFER]
+          example: "VNPAY"
+      required:
+        - user_id
+        - event_id
+        - ticket_tier_id
+        - quantity
+        - payment_method
+
+    CreateBookingResponse:
+      type: object
+      description: Response 202 – xác nhận đã tiếp nhận, đang xử lý bất đồng bộ
+      properties:
+        message:
+          type: string
+          example: "Đang xử lý"
+        data:
+          type: object
+          properties:
+            booking_code:
+              type: string
+              description: Mã đặt vé, dùng để polling trạng thái
+              example: "TICK-20241201-A3F9"
+            status:
+              type: string
+              enum: [PENDING]
+              example: "PENDING"
+            expires_at:
+              type: string
+              format: date-time
+              description: Thời điểm booking hết hạn nếu chưa thanh toán
+              example: "2024-12-01T22:00:00+07:00"
+            estimated_processing_seconds:
+              type: integer
+              description: Ước tính thời gian xử lý (giây)
+              example: 5
+          required:
+            - booking_code
+            - status
+            - expires_at
+      required:
+        - message
+        - data
+
+    # ── booking_domain – Payment Webhook ──────────────────
+    PaymentWebhookRequest:
+      type: object
+      description: Payload IPN/Webhook từ payment provider
+      properties:
+        transaction_id:
+          type: string
+          description: ID giao dịch do payment provider cấp (idempotency key)
+          example: "TXN-VNPAY-20241201-XYZ789"
+        booking_code:
+          type: string
+          description: Mã đặt vé tương ứng (bookings.booking_code)
+          example: "TICK-20241201-A3F9"
+        payment_status:
+          type: string
+          enum: [SUCCESS, FAILED, CANCELLED, PENDING]
+          description: Trạng thái thanh toán từ provider
+          example: "SUCCESS"
+        amount:
+          type: number
+          format: double
+          description: Số tiền thực tế đã thanh toán
+          example: 5000000.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: "VND"
+        payment_method:
+          type: string
+          example: "VNPAY"
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Thời điểm thanh toán thành công (null nếu thất bại)
+        failure_reason:
+          type: string
+          nullable: true
+          description: Mô tả lý do thất bại (chỉ có khi payment_status != SUCCESS)
+          example: "Insufficient funds"
+        provider_metadata:
+          type: object
+          additionalProperties: true
+          description: Dữ liệu thô từ provider (VNPay, Momo…) để lưu trữ audit
+          example:
+            vnp_TransactionNo: "14325678"
+            vnp_BankCode: "VCB"
+      required:
+        - transaction_id
+        - booking_code
+        - payment_status
+        - amount
+        - currency
+        - payment_method
+
+    WebhookAckResponse:
+      type: object
+      description: Xác nhận webhook đã được nhận và xử lý
+      properties:
+        acknowledged:
+          type: boolean
+          example: true
+        booking_code:
+          type: string
+          example: "TICK-20241201-A3F9"
+        booking_status:
+          type: string
+          enum: [CONFIRMED, CANCELLED, PENDING]
+          example: "CONFIRMED"
+        processed_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+          nullable: true
+          description: Ghi chú bổ sung (vd. "Already processed" nếu idempotent)
+      required:
+        - acknowledged
+        - booking_code
+        - booking_status
+        - processed_at
+
+    # ── Common ─────────────────────────────────────────────
+    ErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Mã lỗi nội bộ
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Mô tả lỗi thân thiện với người dùng
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Thông tin bổ sung tuỳ loại lỗi
+      required:
+        - code
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+      required:
+        - error
+
+  # ----------------------------------------------------------
+  # Reusable Responses
+  # ----------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Request không hợp lệ (thiếu field, sai kiểu dữ liệu…)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "BAD_REQUEST"
+              message: "Dữ liệu đầu vào không hợp lệ."
+              details:
+                quantity: "Phải là số nguyên dương, tối đa 10"
+
+    Unauthorized:
+      description: Chưa xác thực hoặc token hết hạn
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "UNAUTHORIZED"
+              message: "Token không hợp lệ hoặc đã hết hạn."
+
+    NotFound:
+      description: Không tìm thấy tài nguyên
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "Không tìm thấy sự kiện với ID đã cung cấp."
+
+    UnprocessableEntity:
+      description: Dữ liệu hợp lệ về cú pháp nhưng vi phạm nghiệp vụ
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "BUSINESS_RULE_VIOLATION"
+              message: "Số lượng vượt quá giới hạn max_per_order của hạng vé."
+              details:
+                max_per_order: 4
+                requested: 6
+
+    InternalServerError:
+      description: Lỗi máy chủ nội bộ
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "Đã xảy ra lỗi, vui lòng thử lại sau."
