@@ -4,13 +4,14 @@
   "description": "TickEnt User & Payment Service – Auth JWT, Webhook thanh toán, Notification Email",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "concurrently --kill-others-on-fail -n API,NOTIFY -c cyan,magenta \"node src/server.js\" \"node src/consumer/notificationConsumer.js\"",
     "dev": "nodemon src/server.js",
     "consumer:notification": "node src/consumer/notificationConsumer.js"
   },
   "dependencies": {
     "amqplib": "^0.10.4",
     "bcryptjs": "^2.4.3",
+    "concurrently": "^10.0.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-validator": "^7.2.0",
@@ -20,5 +21,7 @@
   "devDependencies": {
     "nodemon": "^3.1.4"
   },
-  "engines": { "node": ">=18.0.0" }
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

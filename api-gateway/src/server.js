@@ -9,6 +9,7 @@
 
 require('dotenv').config();
 const express   = require('express');
+const cors      = require('cors');
 const http      = require('http');
 const https     = require('https');
 const rateLimit = require('express-rate-limit');
@@ -24,6 +25,21 @@ const EVENT_SERVICE_URL        = process.env.EVENT_SERVICE_URL
                                || process.env.EVENT_CATALOG_SERVICE_URL
                                || 'http://localhost:3002';
 const USER_PAYMENT_SERVICE_URL = process.env.USER_PAYMENT_SERVICE_URL || 'http://localhost:3003';
+
+// ── Middleware: CORS ────────────────────────────────────────
+// Đặt CORS trước tất cả middleware khác để preflight OPTIONS
+// không bị rate-limit chặn và trả về header đúng cho browser.
+const CORS_ORIGIN = process.env.CORS_ORIGIN; // VD: "https://tickent.vercel.app"
+app.use(cors({
+  origin: CORS_ORIGIN
+    ? CORS_ORIGIN.split(',').map(o => o.trim())
+    : true,                        // true = mirror Origin header (mọi origin) – chỉ dùng cho dev
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400,                   // cache preflight 24h
+}));
+app.options('*', cors());          // Trả 200 cho mọi preflight OPTIONS
 
 // ── Middleware: Access Log ──────────────────────────────────
 app.use(morgan('[:date[iso]] :method :url :status :res[content-length] - :response-time ms'));

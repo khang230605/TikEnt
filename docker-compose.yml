@@ -49,7 +49,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Tự động chạy schema khi khởi tạo lần đầu
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/init_db.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     networks:
       - tickent-net
     healthcheck:
@@ -90,7 +90,7 @@ services:
     environment:
       PORT:         3002
       NODE_ENV:     production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       JWT_SECRET:   ${JWT_SECRET:-change_me_in_production}
     ports:
       - "3002:3002"
@@ -111,7 +111,7 @@ services:
     environment:
       PORT:             3003
       NODE_ENV:         production
-      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       RABBITMQ_URL:     amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
       JWT_SECRET:       ${JWT_SECRET:-change_me_in_production}
       BCRYPT_SALT_ROUNDS: 12
@@ -141,7 +141,7 @@ services:
     command: ["npm", "run", "consumer:notification"]
     environment:
       NODE_ENV:         production
-      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL:     postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       RABBITMQ_URL:     amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@tickent.io}
@@ -165,7 +165,7 @@ services:
     environment:
       PORT:         3001
       NODE_ENV:     production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
       BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-10}
     ports:
@@ -191,7 +191,7 @@ services:
     command: ["npm", "run", "consumer"]
     environment:
       NODE_ENV:     production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
       BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-10}
     depends_on:
@@ -215,7 +215,7 @@ services:
     command: ["npm", "run", "consumer:timeout"]
     environment:
       NODE_ENV:     production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tickent_user}:${POSTGRES_PASSWORD:-tickent_pass}@postgres:5432/${POSTGRES_DB:-tickent}?sslmode=disable
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
     depends_on:
       postgres:
