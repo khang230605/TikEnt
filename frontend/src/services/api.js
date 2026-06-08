@@ -21,4 +21,7 @@ api.interceptors.request.use(
   }
 );
 
+// API calls
+export const getEvents = () => api.get('/events');
+
 export default api;

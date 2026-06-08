@@ -1,14 +1,45 @@
+import { useState, useEffect } from 'react';
 import { Search, MapPin, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const MOCK_EVENTS = [
-  { id: 1, name: 'Đêm Nhạc Hội Mùa Hè 2026', time: '20:00 - 15/07/2026', price: 'Từ 500.000đ', location: 'Hồ Chí Minh', image: 'https://images.unsplash.com/photo-1540039155732-68ee23e15b51?auto=format&fit=crop&q=80&w=800' },
-  { id: 2, name: 'Triển Lãm Nghệ Thuật Đương Đại', time: '09:00 - 20/07/2026', price: 'Từ 200.000đ', location: 'Hà Nội', image: 'https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&q=80&w=800' },
-  { id: 3, name: 'Lễ Hội Âm Nhạc EDM', time: '18:00 - 05/08/2026', price: 'Từ 800.000đ', location: 'Đà Nẵng', image: 'https://images.unsplash.com/photo-1470229722913-7c090be5f524?auto=format&fit=crop&q=80&w=800' },
-  { id: 4, name: 'Hài Kịch: Chuyện Xóm Tui', time: '20:00 - 10/08/2026', price: 'Từ 300.000đ', location: 'Hồ Chí Minh', image: 'https://images.unsplash.com/photo-1585699324551-f6c309eedeca?auto=format&fit=crop&q=80&w=800' },
-];
+import { getEvents } from '../services/api';
 
 export default function HomePage() {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        console.log("Đang gọi API tới:", import.meta.env.VITE_API_URL + '/events');
+        const response = await getEvents();
+        console.log("Dữ liệu nhận từ API:", response.data);
+        
+        // Xử lý cơ chế bóc tách dữ liệu linh hoạt
+        let eventsData = [];
+        if (Array.isArray(response.data)) {
+          eventsData = response.data;
+        } else if (response.data && Array.isArray(response.data.data)) {
+          eventsData = response.data.data;
+        } else if (response.data && Array.isArray(response.data.events)) {
+          eventsData = response.data.events;
+        } else {
+          console.warn("Dữ liệu API không phải là mảng hợp lệ, kiểm tra lại cấu trúc:", response.data);
+        }
+        
+        setEvents(eventsData);
+      } catch (error) {
+        console.error("Lỗi gọi API cụ thể:", error);
+        if (error.name === 'AxiosError' && error.code === 'ERR_NETWORK') {
+          console.error("Gợi ý: Lỗi này thường do cấu hình CORS trên server chưa cấp phép cho http://localhost:5173, hoặc API server đang tắt/chưa khởi động xong trên Render.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, []);
+
   return (
     <div>
       {/* Hero Banner */}
@@ -46,30 +77,70 @@ export default function HomePage() {
           <a href="#" className="text-tz-brown font-semibold hover:text-tz-orange transition-colors">Xem tất cả &rarr;</a>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {MOCK_EVENTS.map(event => (
-            <Link to={`/event/${event.id}`} key={event.id} className="group bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-transparent hover:border-tz-peach block">
-              <div className="relative h-48 overflow-hidden">
-                <img src={event.image} alt={event.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                <div className="absolute top-3 left-3 bg-tz-orange text-white text-xs font-bold px-2 py-1 rounded shadow-md uppercase">Hot</div>
+        {loading ? (
+          <div className="flex justify-center items-center py-20">
+            <div className="text-xl font-bold text-tz-orange animate-pulse">
+              Đang tải sự kiện...
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {events.map(event => (
+              <div key={event.id} className="bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 flex flex-col border border-transparent hover:border-tz-peach">
+                {/* Hình ảnh */}
+                <div className="relative h-56 overflow-hidden rounded-t-xl">
+                  <img 
+                    src={event.banner_url || 'https://images.unsplash.com/photo-1540039155732-68ee23e15b51?auto=format&fit=crop&q=80&w=800'} 
+                    alt={event.title || 'Event Cover'} 
+                    className="w-full h-full object-cover transition-transform duration-500 hover:scale-105" 
+                  />
+                  {event.category && (
+                    <div className="absolute top-3 left-3 bg-tz-orange text-white text-xs font-bold px-2 py-1 rounded shadow-md uppercase">
+                      {event.category}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Nội dung Card */}
+                <div className="p-5 flex flex-col flex-grow">
+                  <h3 className="font-bold text-xl mb-3 text-tz-green line-clamp-2">
+                    {event.title}
+                  </h3>
+                  
+                  <div className="flex items-center text-sm text-tz-brown mb-2">
+                    <Calendar size={16} className="mr-2 shrink-0 text-tz-orange" />
+                    <span className="truncate">
+                      {event.start_time ? new Date(event.start_time).toLocaleString('vi-VN') : 'Đang cập nhật'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-start text-sm text-tz-brown mb-6">
+                    <MapPin size={16} className="mr-2 shrink-0 mt-0.5 text-tz-orange" />
+                    <span className="line-clamp-2">
+                      {event.venue_name}{event.city ? `, ${event.city}` : ''}
+                    </span>
+                  </div>
+
+                  {/* Nút Xem chi tiết ở góc phải dưới */}
+                  <div className="mt-auto flex justify-end">
+                    <Link 
+                      to={`/event/${event.id}`} 
+                      className="bg-tz-orange text-white px-5 py-2 rounded-lg font-semibold hover:bg-opacity-90 transition-colors shadow-sm"
+                    >
+                      Xem chi tiết
+                    </Link>
+                  </div>
+                </div>
               </div>
-              <div className="p-5">
-                <h3 className="font-bold text-lg mb-2 text-tz-green line-clamp-2 group-hover:text-tz-orange transition-colors">{event.name}</h3>
-                <div className="flex items-center text-sm text-tz-brown mb-2">
-                  <Calendar size={16} className="mr-2" />
-                  {event.time}
-                </div>
-                <div className="flex items-center text-sm text-tz-brown mb-4">
-                  <MapPin size={16} className="mr-2" />
-                  {event.location}
-                </div>
-                <div className="font-bold text-tz-orange text-lg">
-                  {event.price}
-                </div>
+            ))}
+            
+            {events.length === 0 && (
+              <div className="col-span-full text-center py-10 text-tz-brown">
+                Không tìm thấy sự kiện nào.
               </div>
-            </Link>
-          ))}
-        </div>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
