@@ -73,7 +73,7 @@ async function handlePaymentSuccess({ bookingCode, transactionId, amount, curren
   try {
     await dbClient.query('BEGIN');
 
-    // Lock booking + inventory để tránh race condition với Timeout Worker
+    // Bước 1: Lock booking + inventory
     const bookingRes = await dbClient.query(
       `SELECT b.id AS booking_id, b.status, b.user_id, b.event_id,
               bt.id AS ticket_tier_id, bt.price AS unit_price,
@@ -88,15 +88,15 @@ async function handlePaymentSuccess({ bookingCode, transactionId, amount, curren
 
     if (bookingRes.rowCount === 0) {
       await dbClient.query('ROLLBACK');
+      console.error(`[handlePaymentSuccess] Lỗi: Không tìm thấy booking: ${bookingCode}`);
       return { httpStatus: 404, body: { error: { code: 'BOOKING_NOT_FOUND', message: `Không tìm thấy booking: ${bookingCode}` } } };
     }
 
     const row = bookingRes.rows[0];
     const { booking_id: bookingId, status: bookingStatus, user_id: userId,
             event_id: eventId, ticket_tier_id: ticketTierId,
-            unit_price: unitPrice, current_version: currentVersion } = row;
+            unit_price: unitPrice, current_version: currentVersion, reserved_qty } = row;
 
-    // ── Phân nhánh theo trạng thái ───────────────────────────
     if (bookingStatus === 'CONFIRMED') {
       await dbClient.query('ROLLBACK');
       return { httpStatus: 200, body: { acknowledged: true, booking_code: bookingCode, booking_status: 'CONFIRMED', processed_at: new Date().toISOString(), note: 'Already processed' } };
@@ -108,64 +108,79 @@ async function handlePaymentSuccess({ bookingCode, transactionId, amount, curren
       return { httpStatus: 200, body: { acknowledged: true, booking_code: bookingCode, booking_status: bookingStatus, processed_at: new Date().toISOString(), note: `Booking đã ${bookingStatus}. Refund đang được khởi tạo.` } };
     }
 
-    if (bookingStatus !== 'PENDING') {
-      await dbClient.query('ROLLBACK');
-      return { httpStatus: 200, body: { acknowledged: true, booking_code: bookingCode, booking_status: bookingStatus, processed_at: new Date().toISOString() } };
+    // Bước 2: Cập nhật trạng thái booking
+    // Chú ý: Theo Schema DB của TickEnt, Enum hợp lệ là 'CONFIRMED', KHÔNG PHẢI 'PAID'.
+    try {
+      await dbClient.query(
+        `UPDATE booking_domain.bookings
+            SET status = 'CONFIRMED', 
+                payment_ref = $2, 
+                total_amount = $3,
+                confirmed_at = NOW(), 
+                updated_at = NOW()
+          WHERE booking_code = $1 
+          RETURNING *`,
+        [bookingCode, transactionId, amount]
+      );
+    } catch (err) {
+      console.error('[handlePaymentSuccess] Lỗi Update DB (Bảng bookings):', err.message);
+      throw err;
     }
-
-    // ── PENDING → CONFIRMED ───────────────────────────────────
-    // Bước 1: Cập nhật trạng thái booking
-    await dbClient.query(
-      `UPDATE booking_domain.bookings
-          SET status = 'CONFIRMED', payment_ref = $1, total_amount = $2,
-              confirmed_at = NOW(), updated_at = NOW()
-        WHERE id = $3`,
-      [transactionId, amount, bookingId]
-    );
 
     const quantity = parseInt(providerMetadata?.quantity || 1, 10);
 
-    // Bước 2: Cập nhật inventory – chuyển từ reserved sang sold (OL)
-    const invRes = await dbClient.query(
-      `UPDATE event_domain.inventory
-          SET sold_qty = sold_qty + $1, reserved_qty = reserved_qty - $1,
-              version = version + 1, updated_at = NOW()
-        WHERE ticket_tier_id = $2 AND version = $3 AND reserved_qty >= $1
-        RETURNING version AS new_version`,
-      [quantity, ticketTierId, currentVersion]
-    );
+    // Bước 3: Cập nhật inventory – chuyển từ reserved sang sold (OL)
+    try {
+      const invRes = await dbClient.query(
+        `UPDATE event_domain.inventory
+            SET sold_qty = sold_qty + $1, reserved_qty = reserved_qty - $1,
+                version = version + 1, updated_at = NOW()
+          WHERE ticket_tier_id = $2 AND version = $3 AND reserved_qty >= $1
+          RETURNING version AS new_version`,
+        [quantity, ticketTierId, currentVersion]
+      );
 
-    if (invRes.rowCount === 0) {
-      await dbClient.query('ROLLBACK');
-      return { httpStatus: 409, body: { error: { code: 'INVENTORY_CONFLICT', message: 'Xung đột tồn kho.' } } };
+      if (invRes.rowCount === 0) {
+        console.error(`[handlePaymentSuccess] Lỗi Update DB (Inventory): Xung đột tồn kho hoặc không đủ vé đang giữ (Cần ${quantity}, đang có ${reserved_qty})`);
+        await dbClient.query('ROLLBACK');
+        return { httpStatus: 409, body: { error: { code: 'INVENTORY_CONFLICT', message: 'Xung đột tồn kho.' } } };
+      }
+    } catch (err) {
+      console.error('[handlePaymentSuccess] Lỗi Update DB (Bảng inventory):', err.message);
+      throw err;
     }
 
-    // Bước 3: Phát hành vé (INSERT tickets)
+    // Bước 4: Phát hành vé (INSERT tickets)
     const insertedTickets = [];
-    for (let i = 1; i <= quantity; i++) {
-      const ticketCode = generateTicketCode(bookingCode, i);
-      const tRes = await dbClient.query(
-        `INSERT INTO booking_domain.tickets
-           (id, booking_id, ticket_tier_id, event_id, user_id,
-            ticket_code, unit_price, currency, status, created_at, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'ACTIVE', NOW(), NOW())
-         RETURNING id, ticket_code, status`,
-        [bookingId, ticketTierId, eventId, userId, ticketCode, parseFloat(unitPrice), currency]
-      );
-      insertedTickets.push(tRes.rows[0]);
-      console.log(`[WebhookCtrl][${bookingCode}] ✓ Vé ${i}/${quantity}: ${ticketCode}`);
+    try {
+      for (let i = 1; i <= quantity; i++) {
+        const ticketCode = generateTicketCode(bookingCode, i);
+        const tRes = await dbClient.query(
+          `INSERT INTO booking_domain.tickets
+             (id, booking_id, ticket_tier_id, event_id, user_id,
+              ticket_code, unit_price, currency, status, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'ACTIVE', NOW(), NOW())
+           RETURNING id, ticket_code, status`,
+          [bookingId, ticketTierId, eventId, userId, ticketCode, parseFloat(unitPrice), currency]
+        );
+        insertedTickets.push(tRes.rows[0]);
+        console.log(`[WebhookCtrl][${bookingCode}] ✓ Vé ${i}/${quantity}: ${ticketCode}`);
+      }
+    } catch (err) {
+      console.error('[handlePaymentSuccess] Lỗi Update DB (Bảng tickets):', err.message);
+      throw err;
     }
 
     await dbClient.query('COMMIT');
     console.log(`[WebhookCtrl][${bookingCode}] ✓ COMMIT – ${quantity} vé phát hành.`);
 
-    // Bước 4: Publish notification (bất đồng bộ, NGOÀI transaction)
+    // Bước 5: Publish notification
     await publishNotificationEvent({ bookingCode, userId, tickets: insertedTickets });
 
     return { httpStatus: 200, body: { acknowledged: true, booking_code: bookingCode, booking_status: 'CONFIRMED', processed_at: new Date().toISOString() } };
 
   } catch (err) {
-    console.error(`[WebhookCtrl][${bookingCode}] ✗ Lỗi:`, err.message);
+    console.error(`[handlePaymentSuccess] ✗ Lỗi tổng quát:`, err.message);
     try { await dbClient.query('ROLLBACK'); } catch (_) {}
     throw err;
   } finally {
