@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const querystring = require('querystring');
+const qs = require('qs');
 const moment = require('moment-timezone');
 const { handlePaymentSuccess, handlePaymentFailed } = require('./webhook.controller');
 const { pool } = require('../../config/database');
@@ -70,16 +70,11 @@ exports.createVnpayUrl = async (req, res) => {
 
     vnp_Params = sortObject(vnp_Params);
 
-    function buildQueryString(obj) {
-      return Object.entries(obj)
-        .map(([key, val]) => `${key}=${val}`)
-        .join('&');
-    }
-    let signData = buildQueryString(vnp_Params);
+    let signData = qs.stringify(vnp_Params, { encode: false });
     let hmac = crypto.createHmac("sha512", secretKey);
-    let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
+    let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
     vnp_Params['vnp_SecureHash'] = signed;
-    vnpUrl += '?' + querystring.stringify(vnp_Params, { encode: false });
+    vnpUrl += '?' + qs.stringify(vnp_Params, { encode: false });
 
     // Cập nhật quantity vào bảng bookings metadata để IPN dùng lại (nếu cần thiết)
     // Nhưng vì DB đã có quantity trong logic webhook, ta có thể lưu tạm hoặc bỏ qua.
@@ -102,9 +97,9 @@ exports.vnpayReturn = (req, res) => {
   vnp_Params = sortObject(vnp_Params);
 
   let secretKey = process.env.VNP_HASHSECRET;
-  let signData = querystring.stringify(vnp_Params, { encode: false });
+  let signData = qs.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
-  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
+  let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
 
   // Nếu muốn, có thể gọi DB ở đây để xem trạng thái.
   // Tuy nhiên theo chuẩn VNPAY, trang Return chỉ dùng để chuyển hướng người dùng, 
@@ -134,9 +129,9 @@ exports.vnpayIpn = async (req, res) => {
 
   vnp_Params = sortObject(vnp_Params);
   let secretKey = process.env.VNP_HASHSECRET;
-  let signData = querystring.stringify(vnp_Params, { encode: false });
+  let signData = qs.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
-  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
+  let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
 
   let paymentStatus = '0'; // Giả định là thanh toán thất bại
 
