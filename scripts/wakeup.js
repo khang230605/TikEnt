@@ -1,3 +1,4 @@
+// Cách wakeup services: ở thư mục tổng dùng lệnh "node scripts/wakeup.js"
 const CORE_SERVICES = [
   { name: 'Payment Service', url: 'https://tikent-user-payment-service.onrender.com/health' },
   { name: 'Event Service', url: 'https://tikent-event-service.onrender.com/health' },
@@ -32,10 +33,10 @@ async function wakeup() {
   console.log('=========================================\n');
 
   console.log('▶ PHASE 1: Đánh thức các Core Services (Đồng thời)...\n');
-  
+
   const phase1Promises = CORE_SERVICES.map(service => pingService(service));
   await Promise.all(phase1Promises);
-  
+
   console.log('\n▶ PHASE 2: Đánh thức API Gateway...\n');
   const gatewayAwake = await pingService(GATEWAY_SERVICE);
 
