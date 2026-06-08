@@ -29,11 +29,8 @@ const USER_PAYMENT_SERVICE_URL = process.env.USER_PAYMENT_SERVICE_URL || 'http:/
 // ── Middleware: CORS ────────────────────────────────────────
 // Đặt CORS trước tất cả middleware khác để preflight OPTIONS
 // không bị rate-limit chặn và trả về header đúng cho browser.
-const CORS_ORIGIN = process.env.CORS_ORIGIN; // VD: "https://tickent.vercel.app"
 app.use(cors({
-  origin: CORS_ORIGIN
-    ? CORS_ORIGIN.split(',').map(o => o.trim())
-    : true,                        // true = mirror Origin header (mọi origin) – chỉ dùng cho dev
+  origin: true, // Bật CORS toàn bộ: luôn tự động mirror (phản chiếu) lại domain của client đang gọi tới
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
