@@ -90,7 +90,7 @@ exports.createVnpayUrl = async (req, res) => {
 };
 
 exports.vnpayReturn = (req, res) => {
-  let vnp_Params = req.query;
+  let vnp_Params = { ...req.query };
   let secureHash = vnp_Params['vnp_SecureHash'];
 
   delete vnp_Params['vnp_SecureHash'];
@@ -121,7 +121,7 @@ exports.vnpayIpn = async (req, res) => {
   console.log("================================");
   console.log("[RADAR IPN] ĐÃ CÓ REQUEST TỪ VNPAY:", req.query);
 
-  let vnp_Params = req.query;
+  let vnp_Params = { ...req.query };
   let secureHash = vnp_Params['vnp_SecureHash'];
 
   let rspCode = vnp_Params['vnp_ResponseCode'];
