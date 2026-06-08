@@ -6,6 +6,7 @@
 require('dotenv').config();
 const express       = require('express');
 const authRouter    = require('./routes/auth');
+const usersRouter   = require('./routes/users');
 const webhookRouter = require('./routes/webhooks');
 
 const app = express();
@@ -21,6 +22,7 @@ app.get('/health', (_req, res) =>
 );
 
 app.use('/api/v1/auth',     authRouter);
+app.use('/api/v1/users',    usersRouter);
 app.use('/api/v1/webhooks', webhookRouter);
 
 app.use((_req, res) =>

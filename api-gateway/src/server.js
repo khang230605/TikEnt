@@ -112,6 +112,7 @@ app.use('/api/v1/events', createProxy(EVENT_SERVICE_URL));
 
 // 2. User & Payment Service
 app.use('/api/v1/auth',     createProxy(USER_PAYMENT_SERVICE_URL));
+app.use('/api/v1/users',    createProxy(USER_PAYMENT_SERVICE_URL));
 app.use('/api/v1/webhooks', createProxy(USER_PAYMENT_SERVICE_URL));
 
 // 3. Booking Service
