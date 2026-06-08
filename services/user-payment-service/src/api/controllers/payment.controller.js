@@ -60,6 +60,8 @@ exports.createVnpayUrl = async (req, res) => {
     // Đảm bảo amount là số và nhân 100 đúng quy định VNPAY
     vnp_Params['vnp_Amount'] = Math.round(Number(amount) * 100);
     vnp_Params['vnp_ReturnUrl'] = returnUrl;
+    // Thêm IPN URL theo yêu cầu để VNPAY biết đường gọi về
+    vnp_Params['vnp_IpnUrl'] = process.env.VNP_IPN_URL;
     vnp_Params['vnp_IpAddr'] = ipAddr;
     vnp_Params['vnp_CreateDate'] = createDate;
     vnp_Params['vnp_ExpireDate'] = expireDate;
@@ -116,6 +118,9 @@ exports.vnpayReturn = (req, res) => {
 };
 
 exports.vnpayIpn = async (req, res) => {
+  console.log("================================");
+  console.log("[RADAR IPN] ĐÃ CÓ REQUEST TỪ VNPAY:", req.query);
+
   let vnp_Params = req.query;
   let secureHash = vnp_Params['vnp_SecureHash'];
 
