@@ -12,7 +12,10 @@ const sortObject = (obj) => {
   let key;
   for (key in obj) {
     if (obj.hasOwnProperty(key)) {
-      str.push(encodeURIComponent(key));
+      // VNPAY bắt buộc: Loại bỏ các tham số rỗng/undefined trước khi băm
+      if (obj[key] !== '' && obj[key] !== undefined && obj[key] !== null) {
+        str.push(encodeURIComponent(key));
+      }
     }
   }
   str.sort();
@@ -72,11 +75,17 @@ exports.createVnpayUrl = async (req, res) => {
 
     vnp_Params = sortObject(vnp_Params);
 
-    let signData = qs.stringify(vnp_Params, { encode: false });
+    let signData = Object.keys(vnp_Params)
+      .map(key => `${key}=${vnp_Params[key]}`)
+      .join('&');
     let hmac = crypto.createHmac("sha512", secretKey);
     let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
     vnp_Params['vnp_SecureHash'] = signed;
-    vnpUrl += '?' + qs.stringify(vnp_Params, { encode: false });
+    // Tạo URL trả về (Đoạn này vẫn dùng cách nối chuỗi an toàn)
+    let finalQueryString = Object.keys(vnp_Params)
+      .map(key => `${key}=${vnp_Params[key]}`)
+      .join('&');
+    vnpUrl += '?' + finalQueryString;
 
     // Cập nhật quantity vào bảng bookings metadata để IPN dùng lại (nếu cần thiết)
     // Nhưng vì DB đã có quantity trong logic webhook, ta có thể lưu tạm hoặc bỏ qua.
@@ -99,7 +108,9 @@ exports.vnpayReturn = (req, res) => {
   vnp_Params = sortObject(vnp_Params);
 
   let secretKey = process.env.VNP_HASHSECRET;
-  let signData = qs.stringify(vnp_Params, { encode: false });
+  let signData = Object.keys(vnp_Params)
+    .map(key => `${key}=${vnp_Params[key]}`)
+    .join('&');
   let hmac = crypto.createHmac("sha512", secretKey);
   let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
 
@@ -162,7 +173,7 @@ exports.vnpayIpn = async (req, res) => {
           provider: 'VNPAY',
           providerMetadata: { quantity: quantity }
         });
-        
+
         if (result.httpStatus === 404) {
           return res.status(200).json({ RspCode: '01', Message: 'Order not found' });
         }
