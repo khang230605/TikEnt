@@ -52,7 +52,7 @@ const {
   EXCHANGE_NAME,
   RK_BOOKING_HOLD,
 } = require('../config/rabbitmq');
-const { pool }                 = require('../config/database');
+const { pool } = require('../config/database');
 
 const BOOKING_HOLD_MINUTES = parseInt(process.env.BOOKING_HOLD_MINUTES || '10', 10);
 
@@ -81,7 +81,7 @@ async function handleBookingMessage(payload, channel, msg) {
   } = payload;
 
   console.log(`\n[Consumer] ► Nhận message: bookingCode=${bookingCode}, tierId=${ticketTierId}, qty=${quantity}`);
-
+  console.log("Đang kết nối tới DB: " + process.env.DATABASE_URL);
   // Lấy một client từ pool (giữ client này suốt transaction)
   const dbClient = await pool.connect();
 
@@ -115,8 +115,8 @@ async function handleBookingMessage(payload, channel, msg) {
     }
 
     const inventory = inventoryRes.rows[0];
-    const currentVersion  = inventory.version;
-    const availableQty    = inventory.total_qty - inventory.reserved_qty - inventory.sold_qty;
+    const currentVersion = inventory.version;
+    const availableQty = inventory.total_qty - inventory.reserved_qty - inventory.sold_qty;
 
     console.log(`[Consumer] [${bookingCode}] Inventory: available=${availableQty}, version=${currentVersion}`);
 
@@ -274,10 +274,10 @@ async function handleBookingMessage(payload, channel, msg) {
         RK_BOOKING_HOLD,                          // routing key → booking_hold_queue
         Buffer.from(JSON.stringify(holdPayload)),
         {
-          persistent:  true,                      // message bền vững qua restart
+          persistent: true,                      // message bền vững qua restart
           contentType: 'application/json',
-          messageId:   `hold-${bookingCode}`,     // ID duy nhất để debug
-          expiration:  String(BOOKING_HOLD_MINUTES * 60 * 1000), // TTL per-message (ms)
+          messageId: `hold-${bookingCode}`,     // ID duy nhất để debug
+          expiration: String(BOOKING_HOLD_MINUTES * 60 * 1000), // TTL per-message (ms)
           // Ghi chú: expiration per-message và x-message-ttl trên queue
           // đều được set – RabbitMQ lấy giá trị nào nhỏ hơn.
         }
@@ -374,5 +374,5 @@ startConsumer().catch((err) => {
 });
 
 // Graceful shutdown khi nhận tín hiệu dừng (Ctrl+C / SIGTERM từ Docker/k8s)
-process.on('SIGINT',  () => { console.log('\n[Consumer] SIGINT received. Đang dừng...'); process.exit(0); });
+process.on('SIGINT', () => { console.log('\n[Consumer] SIGINT received. Đang dừng...'); process.exit(0); });
 process.on('SIGTERM', () => { console.log('\n[Consumer] SIGTERM received. Đang dừng...'); process.exit(0); });

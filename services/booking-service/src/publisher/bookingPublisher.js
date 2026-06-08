@@ -26,7 +26,7 @@
 
 'use strict';
 
-const { getChannel, EXCHANGE_NAME, ROUTING_KEY } = require('../config/rabbitmq');
+const { getChannel, EXCHANGE_NAME, RK_BOOKING_CREATED } = require('../config/rabbitmq');
 
 /**
  * Publish một booking request message vào RabbitMQ.
@@ -66,7 +66,7 @@ async function publishBookingCreated(bookingData) {
   // persistent: true → message được ghi disk, không mất nếu RabbitMQ restart
   const published = channel.publish(
     EXCHANGE_NAME,
-    ROUTING_KEY,
+    RK_BOOKING_CREATED,
     messageBuffer,
     {
       persistent:  true,                    // message bền vững
@@ -81,7 +81,7 @@ async function publishBookingCreated(bookingData) {
     throw new Error('RabbitMQ channel buffer đầy, không thể publish message.');
   }
 
-  console.log(`[Publisher] ✓ Đã publish message: bookingCode=${message.bookingCode}, routingKey=${ROUTING_KEY}`);
+  console.log(`[Publisher] ✓ Đã publish message: bookingCode=${message.bookingCode}, routingKey=${RK_BOOKING_CREATED}`);
 }
 
 module.exports = { publishBookingCreated };
