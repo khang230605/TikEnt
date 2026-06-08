@@ -24,7 +24,9 @@ const BOOKING_SERVICE_URL      = process.env.BOOKING_SERVICE_URL      || 'http:/
 const EVENT_SERVICE_URL        = process.env.EVENT_SERVICE_URL
                                || process.env.EVENT_CATALOG_SERVICE_URL
                                || 'http://localhost:3002';
-const USER_PAYMENT_SERVICE_URL = process.env.USER_PAYMENT_SERVICE_URL || 'http://localhost:3003';
+const USER_PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL 
+                               || process.env.USER_PAYMENT_SERVICE_URL 
+                               || 'http://localhost:3003';
 
 // ── Middleware: CORS ────────────────────────────────────────
 // Đặt CORS trước tất cả middleware khác để preflight OPTIONS
