@@ -28,8 +28,8 @@ const getMyTickets = async (req, res) => {
         ) AS tickets
       FROM booking_domain.bookings b
       JOIN event_domain.events e ON b.event_id = e.id
-      JOIN booking_domain.tickets t ON b.id = t.booking_id
-      JOIN event_domain.ticket_tiers tt ON t.ticket_tier_id = tt.id
+      LEFT JOIN booking_domain.tickets t ON b.id = t.booking_id
+      LEFT JOIN event_domain.ticket_tiers tt ON t.ticket_tier_id = tt.id
       WHERE b.user_id = $1
       GROUP BY b.id, e.id
       ORDER BY b.created_at DESC;

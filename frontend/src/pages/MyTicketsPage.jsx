@@ -106,12 +106,18 @@ export default function MyTicketsPage() {
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <p className="text-sm font-medium text-gray-500 mb-2">Chi tiết vé:</p>
                     <div className="space-y-1">
-                      {booking.tickets?.map((t, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
-                          <span className="font-medium text-tz-green">{t.tier_name}</span>
-                          <span className="text-gray-500 font-mono text-xs">{t.ticket_code}</span>
+                      {booking.tickets && booking.tickets[0]?.ticket_id ? (
+                        booking.tickets.map((t, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                            <span className="font-medium text-tz-green">{t.tier_name}</span>
+                            <span className="text-gray-500 font-mono text-xs">{t.ticket_code}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm bg-yellow-50 text-yellow-600 p-2 rounded italic">
+                          Hệ thống đang xử lý xuất vé. Vui lòng chờ trong giây lát...
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </div>

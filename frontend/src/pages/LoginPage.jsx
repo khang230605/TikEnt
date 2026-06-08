@@ -26,7 +26,7 @@ export default function LoginPage() {
         localStorage.setItem('user', JSON.stringify(data.user));
         
         const fromLocation = location.state?.from || { pathname: '/' };
-        navigate(fromLocation.pathname, { replace: true, state: fromLocation.state });
+        window.location.href = fromLocation.pathname;
       } else {
         throw new Error('Đăng nhập thất bại. Không nhận được token.');
       }
