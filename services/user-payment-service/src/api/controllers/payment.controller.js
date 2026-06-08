@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const querystring = require('querystring');
+const qs = require('qs');
 const moment = require('moment-timezone');
 const { handlePaymentSuccess, handlePaymentFailed } = require('./webhook.controller');
 const { pool } = require('../../config/database');
@@ -55,7 +55,6 @@ exports.createVnpayUrl = async (req, res) => {
     vnp_Params['vnp_OrderType'] = 'other';
     vnp_Params['vnp_Amount'] = Math.round(Number(amount) * 100);
     vnp_Params['vnp_ReturnUrl'] = returnUrl;
-    vnp_Params['vnp_IpnUrl'] = process.env.VNP_IPN_URL;
     vnp_Params['vnp_IpAddr'] = ipAddr;
     vnp_Params['vnp_CreateDate'] = createDate;
     vnp_Params['vnp_ExpireDate'] = expireDate;
@@ -66,12 +65,11 @@ exports.createVnpayUrl = async (req, res) => {
 
     vnp_Params = sortObject(vnp_Params);
     
-    let signData = querystring.stringify(vnp_Params, { encode: false });
+    let signData = qs.stringify(vnp_Params, { encode: false });
     let hmac = crypto.createHmac("sha512", secretKey);
-    // Cố tình bỏ chữ "new" trước Buffer.from để tránh lỗi TypeError: Buffer.from is not a constructor
     let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex"); 
     vnp_Params['vnp_SecureHash'] = signed;
-    vnpUrl += '?' + querystring.stringify(vnp_Params, { encode: false });
+    vnpUrl += '?' + qs.stringify(vnp_Params, { encode: false });
 
     return res.status(200).json({ url: vnpUrl });
   } catch (error) {
@@ -90,7 +88,7 @@ exports.vnpayReturn = (req, res) => {
   vnp_Params = sortObject(vnp_Params);
 
   let secretKey = process.env.VNP_HASHSECRET;
-  let signData = querystring.stringify(vnp_Params, { encode: false });
+  let signData = qs.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
   let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex"); 
 
@@ -120,7 +118,7 @@ exports.vnpayIpn = async (req, res) => {
   vnp_Params = sortObject(vnp_Params);
   
   let secretKey = process.env.VNP_HASHSECRET;
-  let signData = querystring.stringify(vnp_Params, { encode: false });
+  let signData = qs.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
   let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex"); 
 
