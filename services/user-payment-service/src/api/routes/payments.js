@@ -17,9 +17,9 @@ router.post('/vnpay/create-url', paymentController.createVnpayUrl);
 router.get('/vnpay/vnpay-return', paymentController.vnpayReturn);
 
 /**
- * GET /api/v1/payments/vnpay/vnpay-ipn
+ * GET /api/v1/payments/vnpay-ipn
  * Webhook Server-to-Server từ VNPAY để cập nhật trạng thái đơn hàng
  */
-router.get('/vnpay/vnpay-ipn', paymentController.vnpayIpn);
+router.get('/vnpay-ipn', paymentController.vnpayIpn);
 
 module.exports = router;
