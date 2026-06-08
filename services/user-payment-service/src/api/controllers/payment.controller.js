@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const querystring = require('querystring');
-const moment = require('moment');
+const moment = require('moment-timezone');
 const { handlePaymentSuccess, handlePaymentFailed } = require('./webhook.controller');
 const { pool } = require('../../config/database');
 
@@ -12,7 +12,10 @@ const sortObject = (obj) => {
   let key;
   for (key in obj) {
     if (obj.hasOwnProperty(key)) {
-      str.push(encodeURIComponent(key));
+      // VNPAY yêu cầu KHÔNG bao gồm các tham số rỗng/null/undefined
+      if (obj[key] !== '' && obj[key] !== undefined && obj[key] !== null) {
+        str.push(encodeURIComponent(key));
+      }
     }
   }
   str.sort();
@@ -30,14 +33,19 @@ exports.createVnpayUrl = async (req, res) => {
     const safeQty = quantity || 1;
 
     let date = new Date();
-    let createDate = moment(date).format('YYYYMMDDHHmmss');
-    let expireDate = moment(date).add(15, 'minutes').format('YYYYMMDDHHmmss'); // VNPAY timeout 15 phút
+    // Ép múi giờ về Việt Nam để tránh lệch giờ UTC trên Cloud
+    let createDate = moment(date).tz('Asia/Ho_Chi_Minh').format('YYYYMMDDHHmmss');
+    let expireDate = moment(date).tz('Asia/Ho_Chi_Minh').add(15, 'minutes').format('YYYYMMDDHHmmss'); 
     
+    // Xử lý IP Address, tránh trường hợp bị mảng hoặc định dạng IPv6 loopback
     let ipAddr = req.headers['x-forwarded-for'] || 
-                 req.connection.remoteAddress || 
-                 req.socket.remoteAddress || 
-                 req.connection.socket.remoteAddress;
-
+                 req.connection?.remoteAddress || 
+                 req.socket?.remoteAddress || 
+                 '127.0.0.1';
+    
+    // Lấy IP đầu tiên nếu bị mảng do proxy, hoặc fallback IPv4
+    if (Array.isArray(ipAddr)) ipAddr = ipAddr[0];
+    if (ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') ipAddr = '127.0.0.1';
     let tmnCode = process.env.VNP_TMNCODE;
     let secretKey = process.env.VNP_HASHSECRET;
     let vnpUrl = process.env.VNP_URL;
@@ -52,7 +60,8 @@ exports.createVnpayUrl = async (req, res) => {
     vnp_Params['vnp_TxnRef'] = booking_code;
     vnp_Params['vnp_OrderInfo'] = 'Thanh toan ve TickEnt - Ma GD: ' + booking_code;
     vnp_Params['vnp_OrderType'] = 'other';
-    vnp_Params['vnp_Amount'] = amount * 100;
+    // Đảm bảo amount là số và nhân 100 đúng quy định VNPAY
+    vnp_Params['vnp_Amount'] = Math.round(Number(amount) * 100);
     vnp_Params['vnp_ReturnUrl'] = returnUrl;
     vnp_Params['vnp_IpAddr'] = ipAddr;
     vnp_Params['vnp_CreateDate'] = createDate;
