@@ -7,6 +7,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import MyTicketsPage from './pages/MyTicketsPage';
+import PaymentResultPage from './pages/PaymentResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="checkout" element={<CheckoutPage />} />
             <Route path="my-tickets" element={<MyTicketsPage />} />
+            <Route path="payment-result" element={<PaymentResultPage />} />
           </Route>
         </Route>
       </Routes>

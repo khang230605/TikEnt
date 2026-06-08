@@ -266,4 +266,4 @@ async function paymentCallback(req, res) {
   }
 }
 
-module.exports = { paymentCallback };
+module.exports = { paymentCallback, handlePaymentSuccess, handlePaymentFailed };

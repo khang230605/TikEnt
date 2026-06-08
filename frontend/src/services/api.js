@@ -28,5 +28,6 @@ export const createBooking = (bookingData) => api.post('/bookings', bookingData)
 export const loginUser = (credentials) => api.post('/auth/login', credentials);
 export const registerUser = (userData) => api.post('/auth/register', userData);
 export const getMyTickets = () => api.get('/users/me/tickets');
+export const createPaymentUrl = (paymentData) => api.post('/payments/vnpay/create-url', paymentData);
 
 export default api;

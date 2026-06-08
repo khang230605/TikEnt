@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Ticket, User, Mail, Phone } from 'lucide-react';
-import { createBooking } from '../services/api';
+import { createBooking, createPaymentUrl } from '../services/api';
 
 export default function CheckoutPage() {
   const location = useLocation();
@@ -42,23 +42,49 @@ export default function CheckoutPage() {
     setIsSubmitting(true);
     
     // Gom dữ liệu gửi lên API Backend
-    const ticketsPayload = selectedTiers.map(tier => ({
-      ticket_tier_id: tier.id,
-      quantity: selectedTickets[tier.id]
-    }));
+    // Backend booking-service hiện tại thiết kế bắt buộc 1 loại vé/đơn hàng (theo cấu trúc RabbitMQ Payload)
+    const firstTier = selectedTiers[0];
+    if (!firstTier) {
+      setErrorMsg('Vui lòng chọn vé trước khi thanh toán.');
+      setIsSubmitting(false);
+      return;
+    }
 
-    // Payload chuẩn hóa yêu cầu Backend: user_id, event_id, tickets
+    // Payload chuẩn hóa yêu cầu Backend
     const payload = {
       user_id: userInfo.id,
       event_id: eventId,
-      tickets: ticketsPayload,
+      ticket_tier_id: firstTier.id,
+      quantity: selectedTickets[firstTier.id],
+      payment_method: "VNPAY",
       total_amount: totalAmount
     };
 
     try {
-      await createBooking(payload);
-      alert('🎉 Đặt vé thành công! Ghế của bạn đang được giữ trong 10 phút.');
-      navigate('/');
+      // 1. Tạo Booking
+      const res = await createBooking(payload);
+      const bookingCode = res.data?.data?.booking_code;
+
+      if (!bookingCode) {
+        throw new Error('Không nhận được mã đơn hàng từ hệ thống.');
+      }
+
+      // 2. Gọi API tạo URL VNPAY
+      const paymentPayload = {
+        booking_code: bookingCode,
+        amount: totalAmount,
+        quantity: selectedTickets[firstTier.id]
+      };
+      
+      const vnpayRes = await createPaymentUrl(paymentPayload);
+      const vnpayUrl = vnpayRes.data?.url;
+
+      if (vnpayUrl) {
+        // Chuyển hướng sang VNPAY
+        window.location.href = vnpayUrl;
+      } else {
+        throw new Error('Không thể tạo liên kết thanh toán.');
+      }
     } catch (error) {
       console.error('Lỗi đặt vé:', error);
       setErrorMsg(error.response?.data?.message || error.response?.data?.error?.message || 'Có lỗi xảy ra khi đặt vé hoặc đã hết vé. Vui lòng thử lại.');

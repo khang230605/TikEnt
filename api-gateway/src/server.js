@@ -8,25 +8,25 @@
 'use strict';
 
 require('dotenv').config();
-const express   = require('express');
-const cors      = require('cors');
-const http      = require('http');
-const https     = require('https');
+const express = require('express');
+const cors = require('cors');
+const http = require('http');
+const https = require('https');
 const rateLimit = require('express-rate-limit');
-const morgan    = require('morgan');
-const { URL }   = require('url');
+const morgan = require('morgan');
+const { URL } = require('url');
 
-const app  = express();
+const app = express();
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
 // ── Biến môi trường cho Service URLs ────────────────────────
-const BOOKING_SERVICE_URL      = process.env.BOOKING_SERVICE_URL      || 'http://localhost:3001';
-const EVENT_SERVICE_URL        = process.env.EVENT_SERVICE_URL
-                               || process.env.EVENT_CATALOG_SERVICE_URL
-                               || 'http://localhost:3002';
-const USER_PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL 
-                               || process.env.USER_PAYMENT_SERVICE_URL 
-                               || 'http://localhost:3003';
+const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || 'http://localhost:3001';
+const EVENT_SERVICE_URL = process.env.EVENT_SERVICE_URL
+  || process.env.EVENT_CATALOG_SERVICE_URL
+  || 'http://localhost:3002';
+const USER_PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL
+  || process.env.USER_PAYMENT_SERVICE_URL
+  || 'http://localhost:3003';
 
 // ── Middleware: CORS ────────────────────────────────────────
 // Đặt CORS trước tất cả middleware khác để preflight OPTIONS
@@ -46,12 +46,12 @@ app.use(morgan('[:date[iso]] :method :url :status :res[content-length] - :respon
 // ── Middleware: Rate Limiting ────────────────────────────────
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
-  max:      parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
   standardHeaders: true,
-  legacyHeaders:   false,
+  legacyHeaders: false,
   message: {
     error: {
-      code:    'TOO_MANY_REQUESTS',
+      code: 'TOO_MANY_REQUESTS',
       message: 'Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.'
     }
   }
@@ -61,8 +61,8 @@ app.use('/api/', limiter);
 // ── Health Check (Gateway) ──────────────────────────────────
 app.get('/health', (req, res) => {
   res.status(200).json({
-    status:    'ok',
-    service:   'api-gateway',
+    status: 'ok',
+    service: 'api-gateway',
     timestamp: new Date().toISOString()
   });
 });
@@ -72,15 +72,15 @@ app.get('/health', (req, res) => {
 // breaking change của v3 (path stripping).
 function createProxy(targetBase) {
   const target = new URL(targetBase);
-  const lib    = target.protocol === 'https:' ? https : http;
+  const lib = target.protocol === 'https:' ? https : http;
 
   return (req, res) => {
     const options = {
       hostname: target.hostname,
-      port:     target.port || (target.protocol === 'https:' ? 443 : 80),
-      path:     req.originalUrl,  // giữ nguyên path đầy đủ (VD: /api/v1/events?page=1)
-      method:   req.method,
-      headers:  {
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: req.originalUrl,  // giữ nguyên path đầy đủ (VD: /api/v1/events?page=1)
+      method: req.method,
+      headers: {
         ...req.headers,
         host: target.host,        // override host header về service
       },
@@ -113,19 +113,20 @@ function createProxy(targetBase) {
 app.use('/api/v1/events', createProxy(EVENT_SERVICE_URL));
 
 // 2. User & Payment Service
-app.use('/api/v1/auth',     createProxy(USER_PAYMENT_SERVICE_URL));
-app.use('/api/v1/users',    createProxy(USER_PAYMENT_SERVICE_URL));
+app.use('/api/v1/auth', createProxy(USER_PAYMENT_SERVICE_URL));
+app.use('/api/v1/users', createProxy(USER_PAYMENT_SERVICE_URL));
 app.use('/api/v1/webhooks', createProxy(USER_PAYMENT_SERVICE_URL));
+app.use('/api/v1/payments', createProxy(USER_PAYMENT_SERVICE_URL));
 
 // 3. Booking Service
 app.use('/api/v1/bookings', createProxy(BOOKING_SERVICE_URL));
-app.use('/api/v1/tickets',  createProxy(BOOKING_SERVICE_URL));
+app.use('/api/v1/tickets', createProxy(BOOKING_SERVICE_URL));
 
 // ── Fallback 404 ────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({
     error: {
-      code:    'NOT_FOUND',
+      code: 'NOT_FOUND',
       message: 'Endpoint không tồn tại trên API Gateway.'
     }
   });

@@ -21,9 +21,12 @@ app.get('/health', (_req, res) =>
   res.json({ status: 'ok', service: 'user-payment-service', timestamp: new Date().toISOString() })
 );
 
+const paymentsRouter = require('./routes/payments');
+
 app.use('/api/v1/auth',     authRouter);
 app.use('/api/v1/users',    usersRouter);
 app.use('/api/v1/webhooks', webhookRouter);
+app.use('/api/v1/payments', paymentsRouter);
 
 app.use((_req, res) =>
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint không tồn tại.' } })
