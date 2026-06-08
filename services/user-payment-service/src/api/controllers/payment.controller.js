@@ -149,7 +149,7 @@ exports.vnpayIpn = async (req, res) => {
 
       if (rspCode === '00') {
         // Thanh toán thành công
-        await handlePaymentSuccess({
+        const result = await handlePaymentSuccess({
           bookingCode: bookingCode,
           transactionId: transactionId,
           amount: amount,
@@ -157,6 +157,10 @@ exports.vnpayIpn = async (req, res) => {
           provider: 'VNPAY',
           providerMetadata: { quantity: quantity }
         });
+        
+        if (result.httpStatus === 404) {
+          return res.status(200).json({ RspCode: '01', Message: 'Order not found' });
+        }
       } else {
         // Thanh toán thất bại
         await handlePaymentFailed({

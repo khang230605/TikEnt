@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "concurrently --kill-others-on-fail -n API,WORKER,TIMEOUT,NOTIFY -c cyan,green,yellow,magenta \"node src/server.js\" \"node src/consumer/bookingConsumer.js\" \"node src/consumer/bookingTimeoutConsumer.js\" \"node src/consumer/bookingNotificationConsumer.js\"",
-    "dev": "nodemon src/server.js",
+    "dev": "concurrently -n API,WORKER -c cyan,green \"nodemon src/server.js\" \"nodemon src/consumer/bookingConsumer.js\"",
     "consumer": "node src/consumer/bookingConsumer.js",
     "consumer:timeout": "node src/consumer/bookingTimeoutConsumer.js",
     "consumer:notification": "node src/consumer/bookingNotificationConsumer.js"
