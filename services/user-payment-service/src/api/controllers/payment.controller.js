@@ -12,10 +12,7 @@ const sortObject = (obj) => {
   let key;
   for (key in obj) {
     if (obj.hasOwnProperty(key)) {
-      // VNPAY yêu cầu KHÔNG bao gồm các tham số rỗng/null/undefined
-      if (obj[key] !== '' && obj[key] !== undefined && obj[key] !== null) {
-        str.push(encodeURIComponent(key));
-      }
+      str.push(encodeURIComponent(key));
     }
   }
   str.sort();
@@ -28,21 +25,21 @@ const sortObject = (obj) => {
 exports.createVnpayUrl = async (req, res) => {
   try {
     const { booking_code, amount, bank_code, quantity } = req.body;
-    
+
     // Fallback quantity nếu gửi từ CheckoutPage
     const safeQty = quantity || 1;
 
     let date = new Date();
     // Ép múi giờ về Việt Nam để tránh lệch giờ UTC trên Cloud
     let createDate = moment(date).tz('Asia/Ho_Chi_Minh').format('YYYYMMDDHHmmss');
-    let expireDate = moment(date).tz('Asia/Ho_Chi_Minh').add(15, 'minutes').format('YYYYMMDDHHmmss'); 
-    
+    let expireDate = moment(date).tz('Asia/Ho_Chi_Minh').add(15, 'minutes').format('YYYYMMDDHHmmss');
+
     // Xử lý IP Address, tránh trường hợp bị mảng hoặc định dạng IPv6 loopback
-    let ipAddr = req.headers['x-forwarded-for'] || 
-                 req.connection?.remoteAddress || 
-                 req.socket?.remoteAddress || 
-                 '127.0.0.1';
-    
+    let ipAddr = req.headers['x-forwarded-for'] ||
+      req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      '127.0.0.1';
+
     // Lấy IP đầu tiên nếu bị mảng do proxy, hoặc fallback IPv4
     if (Array.isArray(ipAddr)) ipAddr = ipAddr[0];
     if (ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') ipAddr = '127.0.0.1';
@@ -73,9 +70,14 @@ exports.createVnpayUrl = async (req, res) => {
 
     vnp_Params = sortObject(vnp_Params);
 
-    let signData = querystring.stringify(vnp_Params, { encode: false });
+    function buildQueryString(obj) {
+      return Object.entries(obj)
+        .map(([key, val]) => `${key}=${val}`)
+        .join('&');
+    }
+    let signData = buildQueryString(vnp_Params);
     let hmac = crypto.createHmac("sha512", secretKey);
-    let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex"); 
+    let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
     vnp_Params['vnp_SecureHash'] = signed;
     vnpUrl += '?' + querystring.stringify(vnp_Params, { encode: false });
 
@@ -102,17 +104,17 @@ exports.vnpayReturn = (req, res) => {
   let secretKey = process.env.VNP_HASHSECRET;
   let signData = querystring.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
-  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");     
+  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
 
   // Nếu muốn, có thể gọi DB ở đây để xem trạng thái.
   // Tuy nhiên theo chuẩn VNPAY, trang Return chỉ dùng để chuyển hướng người dùng, 
   // kết quả thực sự do IPN quyết định.
 
-  if(secureHash === signed){
+  if (secureHash === signed) {
     // Chữ ký hợp lệ
     const code = vnp_Params['vnp_ResponseCode'];
     return res.redirect(`${process.env.VNP_RETURN_URL}?vnp_ResponseCode=${code}&vnp_TxnRef=${vnp_Params['vnp_TxnRef']}`);
-  } else{
+  } else {
     // Chữ ký sai
     return res.redirect(`${process.env.VNP_RETURN_URL}?vnp_ResponseCode=99&vnp_TxnRef=${vnp_Params['vnp_TxnRef']}`);
   }
@@ -121,7 +123,7 @@ exports.vnpayReturn = (req, res) => {
 exports.vnpayIpn = async (req, res) => {
   let vnp_Params = req.query;
   let secureHash = vnp_Params['vnp_SecureHash'];
-  
+
   let rspCode = vnp_Params['vnp_ResponseCode'];
   let bookingCode = vnp_Params['vnp_TxnRef'];
   let amount = vnp_Params['vnp_Amount'] / 100;
@@ -134,10 +136,10 @@ exports.vnpayIpn = async (req, res) => {
   let secretKey = process.env.VNP_HASHSECRET;
   let signData = querystring.stringify(vnp_Params, { encode: false });
   let hmac = crypto.createHmac("sha512", secretKey);
-  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");     
+  let signed = hmac.update(new Buffer.from(signData, 'utf-8')).digest("hex");
 
   let paymentStatus = '0'; // Giả định là thanh toán thất bại
-  
+
   if (secureHash === signed) {
     console.log(`[VNPAY IPN] Nhận callback cho GD ${bookingCode}, RspCode: ${rspCode}`);
 
@@ -158,7 +160,7 @@ exports.vnpayIpn = async (req, res) => {
           amount: amount,
           currency: 'VND',
           provider: 'VNPAY',
-          providerMetadata: { quantity: quantity } 
+          providerMetadata: { quantity: quantity }
         });
       } else {
         // Thanh toán thất bại
@@ -167,7 +169,7 @@ exports.vnpayIpn = async (req, res) => {
           failureReason: `Lỗi VNPAY RspCode: ${rspCode}`
         });
       }
-      
+
       // Trả về kết quả cho VNPAY
       return res.status(200).json({ RspCode: '00', Message: 'Confirm Success' });
     } catch (e) {
