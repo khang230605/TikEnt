@@ -2,9 +2,8 @@ name: Wakeup Services
 
 on:
   workflow_dispatch: # Cho phép chạy thủ công bằng nút bấm trên giao diện GitHub
-  schedule:
-    # Tùy chọn: Tự động chạy mỗi 14 phút để giữ server không bị sleep (bỏ comment 2 dòng dưới nếu muốn)
-    # - cron: '*/14 * * * *'
+  # schedule:
+  #   - cron: '*/14 * * * *'
 
 jobs:
   ping-services:
