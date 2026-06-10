@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Calendar, MapPin, Share2, Heart, Clock, Minus, Plus } from 'lucide-react';
+import { Calendar, MapPin, Share2, Heart, Clock } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getEventById } from '../services/api';
 
@@ -29,15 +29,9 @@ export default function EventDetailPage() {
     if (id) fetchEventDetail();
   }, [id]);
 
-  // Xử lý tăng giảm số lượng vé
-  const handleQuantityChange = (tierId, delta) => {
-    setSelectedTickets(prev => {
-      const currentQty = prev[tierId] || 0;
-      const newQty = Math.max(0, currentQty + delta);
-      return {
-        ...prev,
-        [tierId]: newQty
-      };
+  const handleSelectTier = (tierId) => {
+    setSelectedTickets({
+      [tierId]: 1
     });
   };
 
@@ -136,39 +130,59 @@ export default function EventDetailPage() {
             
             <div className="space-y-4 mb-24 lg:mb-6">
               {event.ticket_tiers && event.ticket_tiers.length > 0 ? (
-                event.ticket_tiers.map(tier => (
-                  <div key={tier.id} className="p-4 rounded-xl border border-gray-200 flex flex-col gap-3 hover:border-tz-orange/50 transition-colors bg-white shadow-sm">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="flex-1">
-                        <h4 className="font-bold text-tz-green text-lg">{tier.name}</h4>
-                        {tier.description && <p className="text-sm text-tz-brown mt-1">{tier.description}</p>}
+                event.ticket_tiers.map(tier => {
+                  const isSoldOut = tier.available_qty !== undefined && tier.available_qty <= 0;
+                  const isSelected = selectedTickets[tier.id];
+                  
+                  return (
+                    <div 
+                      key={tier.id} 
+                      className={`p-4 rounded-xl border flex flex-col gap-3 transition-colors shadow-sm ${
+                        isSoldOut 
+                          ? 'border-gray-200 bg-gray-50 opacity-75 cursor-not-allowed'
+                          : isSelected 
+                            ? 'border-tz-green bg-green-50/50 cursor-pointer' 
+                            : 'border-gray-200 bg-white hover:border-tz-orange/50 cursor-pointer'
+                      }`}
+                      onClick={() => {
+                        if (!isSoldOut) handleSelectTier(tier.id);
+                      }}
+                    >
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1">
+                          <h4 className={`font-bold text-lg ${isSoldOut ? 'text-gray-500' : 'text-tz-green'}`}>{tier.name}</h4>
+                          {tier.description && <p className="text-sm text-tz-brown mt-1">{tier.description}</p>}
+                          {tier.available_qty !== undefined && !isSoldOut && (
+                            <p className="text-xs text-tz-orange mt-1 font-medium">Còn lại: {tier.available_qty} vé</p>
+                          )}
+                        </div>
+                        <div className={`font-bold text-lg whitespace-nowrap ${isSoldOut ? 'text-gray-400' : 'text-tz-orange'}`}>
+                          {Number(tier.price).toLocaleString('vi-VN')} đ
+                        </div>
                       </div>
-                      <div className="font-bold text-tz-orange text-lg whitespace-nowrap">
-                        {Number(tier.price).toLocaleString('vi-VN')} đ
+                      
+                      <div className="flex justify-between items-center mt-2 pt-3 border-t border-gray-100">
+                        <span className="text-sm text-tz-brown font-medium">Trạng thái:</span>
+                        <button 
+                          disabled={isSoldOut}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (!isSoldOut) handleSelectTier(tier.id); 
+                          }}
+                          className={`px-4 py-1.5 rounded-lg font-bold text-sm transition-colors border ${
+                            isSoldOut
+                              ? 'bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed'
+                              : isSelected 
+                                ? 'bg-tz-green text-white border-tz-green' 
+                                : 'bg-white text-tz-orange border-tz-orange hover:bg-tz-orange hover:text-white'
+                          }`}
+                        >
+                          {isSoldOut ? 'HẾT VÉ (SOLDOUT)' : isSelected ? 'Đã chọn' : 'Chọn mua'}
+                        </button>
                       </div>
                     </div>
-                    
-                    <div className="flex justify-between items-center mt-2 pt-3 border-t border-gray-100">
-                      <span className="text-sm text-tz-brown font-medium">Số lượng:</span>
-                      <div className="flex items-center gap-3">
-                        <button 
-                          onClick={() => handleQuantityChange(tier.id, -1)}
-                          disabled={!selectedTickets[tier.id]}
-                          className="p-1.5 rounded-lg border border-gray-300 text-tz-brown hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <Minus size={16} />
-                        </button>
-                        <span className="font-bold w-6 text-center text-tz-green text-lg">{selectedTickets[tier.id] || 0}</span>
-                        <button 
-                          onClick={() => handleQuantityChange(tier.id, 1)}
-                          className="p-1.5 rounded-lg border border-gray-300 text-tz-brown hover:bg-gray-100 transition-colors"
-                        >
-                          <Plus size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center text-tz-brown py-8 bg-gray-50 rounded-lg border border-dashed border-gray-200">
                   Sự kiện chưa mở bán vé.
