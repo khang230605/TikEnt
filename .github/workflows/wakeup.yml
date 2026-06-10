@@ -1,0 +1,23 @@
+name: Wakeup Services
+
+on:
+  workflow_dispatch: # Cho phép chạy thủ công bằng nút bấm trên giao diện GitHub
+  schedule:
+    # Tùy chọn: Tự động chạy mỗi 14 phút để giữ server không bị sleep (bỏ comment 2 dòng dưới nếu muốn)
+    # - cron: '*/14 * * * *'
+
+jobs:
+  ping-services:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' # Hoặc phiên bản Node.js bạn đang dùng
+          
+      - name: Run Wakeup Script
+        run: node scripts/wakeup.js
