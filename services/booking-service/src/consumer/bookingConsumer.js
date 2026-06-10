@@ -204,12 +204,12 @@ async function handleBookingMessage(payload, channel, msg) {
 
     const insertBookingSQL = `
       INSERT INTO booking_domain.bookings
-        (id, user_id, event_id, booking_code, status,
+        (id, user_id, event_id, ticket_tier_id, booking_code, status,
          total_amount, currency, payment_method, expires_at,
          created_at, updated_at)
       VALUES
-        (gen_random_uuid(), $1, $2, $3, 'PENDING',
-         0.00, 'VND', $4, $5,
+        (gen_random_uuid(), $1, $2, $3, $4, 'PENDING',
+         0.00, 'VND', $5, $6,
          NOW(), NOW())
       RETURNING id, booking_code, status, expires_at
     `;
@@ -219,9 +219,10 @@ async function handleBookingMessage(payload, channel, msg) {
     const insertRes = await dbClient.query(insertBookingSQL, [
       userId,         // $1
       eventId,        // $2
-      bookingCode,    // $3
-      paymentMethod,  // $4
-      expiresAt,      // $5
+      ticketTierId,   // $3
+      bookingCode,    // $4
+      paymentMethod,  // $5
+      expiresAt,      // $6
     ]);
 
     const newBooking = insertRes.rows[0];

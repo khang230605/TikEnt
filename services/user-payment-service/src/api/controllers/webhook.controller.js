@@ -75,11 +75,11 @@ async function handlePaymentSuccess({ bookingCode, transactionId, amount, curren
 
     // Bước 1: Lock booking + inventory
     const bookingRes = await dbClient.query(
-      `SELECT b.id AS booking_id, b.status, b.user_id, b.event_id,
-              bt.id AS ticket_tier_id, bt.price AS unit_price,
+      `SELECT b.id AS booking_id, b.status, b.user_id, b.event_id, b.ticket_tier_id,
+              bt.price AS unit_price,
               inv.version AS current_version, inv.reserved_qty
          FROM booking_domain.bookings b
-         JOIN event_domain.ticket_tiers bt ON bt.event_id = b.event_id
+         JOIN event_domain.ticket_tiers bt ON bt.id = b.ticket_tier_id
          JOIN event_domain.inventory   inv ON inv.ticket_tier_id = bt.id
         WHERE b.booking_code = $1
           FOR UPDATE OF b, inv`,
@@ -197,9 +197,9 @@ async function handlePaymentFailed({ bookingCode, failureReason }) {
     await dbClient.query('BEGIN');
 
     const res = await dbClient.query(
-      `SELECT b.id, b.status, bt.id AS ticket_tier_id, inv.reserved_qty, inv.version
+      `SELECT b.id, b.status, b.ticket_tier_id, inv.reserved_qty, inv.version
          FROM booking_domain.bookings b
-         JOIN event_domain.ticket_tiers bt ON bt.event_id = b.event_id
+         JOIN event_domain.ticket_tiers bt ON bt.id = b.ticket_tier_id
          JOIN event_domain.inventory   inv ON inv.ticket_tier_id = bt.id
         WHERE b.booking_code = $1 FOR UPDATE OF b, inv`,
       [bookingCode]

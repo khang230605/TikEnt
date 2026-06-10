@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS booking_domain.bookings (
     id              UUID            NOT NULL DEFAULT gen_random_uuid(),
     user_id         UUID            NOT NULL,           -- logical FK → user_domain.users.id
     event_id        UUID            NOT NULL,           -- logical FK → event_domain.events.id
+    ticket_tier_id  UUID            NOT NULL,           -- logical FK → event_domain.ticket_tiers.id
     booking_code    VARCHAR(64)     NOT NULL,           -- human-readable reference code
     status          VARCHAR(50)     NOT NULL DEFAULT 'PENDING',
     --   PENDING → CONFIRMED → CANCELLED | EXPIRED | REFUNDED
