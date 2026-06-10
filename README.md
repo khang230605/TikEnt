@@ -1,6 +1,6 @@
 # TikEnt - Hệ thống Đặt vé Sự kiện Trực tuyến 🎫
 
-Chào mừng bạn đến với hệ thống đặt vé sự kiện **TikEnt**. Đây là hệ thống được thiết kế theo kiến trúc Microservices, cho phép người dùng xem thông tin sự kiện, chọn hạng vé và thanh toán trực tuyến qua cổng VNPAY.
+Chào mừng bạn đến với hệ thống đặt vé sự kiện **TikEnt**. Đây là hệ thống được thiết kế theo kiến trúc Service-based, cho phép người dùng xem thông tin sự kiện, chọn hạng vé và thanh toán trực tuyến qua cổng VNPAY.
 
 Dưới đây là kịch bản hướng dẫn chi tiết từng bước để bạn có thể trải nghiệm toàn bộ luồng mua vé.
 
